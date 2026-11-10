@@ -1,7 +1,7 @@
 from flask import Flask, render_template_string, request, redirect, session
 import sqlite3
 
-app = Flask(_name_)
+app = Flask(__name__)
 app.secret_key = "zimmarket-secret-2026"
 
 def init_db():
