@@ -1,4 +1,4 @@
-from flask import Flask, request, redirect, session
+from flask import Flask, render_template_string, request, redirect, session
 import sqlite3
 
 app = Flask(_name_)
