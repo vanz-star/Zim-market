@@ -1,74 +1,149 @@
-from flask import Flask, render_template_string, request, redirect, session
+from flask import Flask, request, redirect, session
+from werkzeug.utils import secure_filename
+import os
 import sqlite3
 
 app = Flask(__name__)
 app.secret_key = "zimmarket-secret-2026"
+UPLOAD_FOLDER = 'static/uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def init_db():
     conn = sqlite3.connect('zimmarket.db')
-    conn.execute('''CREATE TABLE IF NOT EXISTS restaurants 
-    (id INTEGER PRIMARY KEY, name TEXT, email TEXT UNIQUE, password TEXT, cuisine TEXT, phone TEXT)''')
-    conn.execute('''CREATE TABLE IF NOT EXISTS dishes 
-    (id INTEGER PRIMARY KEY, restaurant_id INTEGER, dish_name TEXT, price TEXT)''')
+    conn.execute("CREATE TABLE IF NOT EXISTS restaurants (id INTEGER PRIMARY KEY, name TEXT, email TEXT UNIQUE, password TEXT, cuisine TEXT)")
+    conn.execute("CREATE TABLE IF NOT EXISTS dishes (id INTEGER PRIMARY KEY, restaurant_id INTEGER, dish_name TEXT, price TEXT, image TEXT)")
     conn.commit()
     conn.close()
 init_db()
 
+# HOME - NICE PICTURES
 @app.route('/')
 def home():
     conn = sqlite3.connect('zimmarket.db')
     cur = conn.cursor()
-    cur.execute("SELECT r.name, r.cuisine, d.dish_name, d.price FROM restaurants r JOIN dishes d ON r.id=d.restaurant_id")
-    data = cur.fetchall()
+    try:
+        cur.execute('SELECT r.name, r.cuisine, d.dish_name, d.price, d.image FROM restaurants r JOIN dishes d ON r.id = d.restaurant_id')
+        data = cur.fetchall()
+    except:
+        data = []
     conn.close()
+    
     cards = ""
     if not data:
-        cards = "<p style='text-align:center;padding:40px'>No restaurants yet. Be first! <br><br><a href='/register' style='background:#2E7D32;color:white;padding:12px 20px;border-radius:10px;text-decoration:none'>Register Restaurant</a></p>"
-    for name, cuisine, dish, price in data:
-        flag = "🇿🇼" if "Traditional" in cuisine else "🇮🇹" if "Italian" in cuisine else "🇲🇽" if "Mexican" in cuisine else "🍽️"
-        cards += f'<div class="card"><div class="top"><span>🍛</span><span class="badge">{flag} {cuisine}</span></div><h3>{name}</h3><p>{dish}</p><div class="row"><span class="price">{price}</span><button class="btn">Order</button></div></div>'
-    return f"<html><head><meta name='viewport' content='width=device-width, initial-scale=1.0'><style>body{{font-family:Arial;margin:0;background:#f5f5f5}} .header{{background:#111;color:white;padding:18px;text-align:center}} .container{{max-width:600px;margin:auto;padding:12px}} .card{{background:white;border-radius:16px;padding:15px;margin:12px 0;box-shadow:0 2px 8px rgba(0,0,0,.08)}} .top{{display:flex;justify-content:space-between}} .badge{{background:#eee;padding:4px 10px;border-radius:12px;font-size:12px}} .row{{display:flex;justify-content:space-between;align-items:center}} .price{{color:#e65100;font-weight:bold}} .btn{{background:#2E7D32;color:white;border:none;padding:8px 16px;border-radius:8px}} .nav{{display:flex;gap:10px;justify-content:center;padding:10px}} .nav a{{text-decoration:none;background:white;padding:8px 14px;border-radius:20px;border:1px solid #ddd;color:#111;font-size:13px}}</style></head><body><div class='header'><h1 style='margin:0'>ZimMarket</h1><small>Harare Food Marketplace</small><div class='nav'><a href='/'>🏠 Home</a><a href='/register'>➕ Register</a><a href='/login'>🔑 Login</a></div></div><div class='container'>{cards}</div></body></html>"
+        cards = "<h3>No dishes yet - Restaurant owners please add dishes!</h3>"
+    
+    for name, cuisine, dish, price, image in data:
+        img_tag = f"<img src='{image}' style='width:100%;height:180px;object-fit:cover;border-radius:10px 10px 0 0;'>" if image else "<div style='width:100%;height:180px;background:#eee;line-height:180px;text-align:center;'>No Image</div>"
+        cards += f"""
+        <div style='width:250px;border:1px solid #ddd;border-radius:10px;margin:10px;display:inline-block;vertical-align:top;box-shadow:0 2px 5px #ccc;'>
+            {img_tag}
+            <div style='padding:10px;'>
+                <b>{dish}</b> - ${price}<br>
+                <small>{name} ({cuisine})</small>
+            </div>
+        </div>
+        """
+
+    return f"""
+    <html><head><style>body{{font-family:Arial;padding:20px;}}</style></head><body>
+    <h1 style='color:#e67e22;'>🍔 ZimMarket</h1>
+    <a href='/dashboard'>Dashboard</a> | <a href='/register'>Register Restaurant</a> | <a href='/login'>Login</a>
+    <hr>
+    <div>{cards}</div>
+    </body></html>
+    """
+
+# DASHBOARD WITH DELETE
+@app.route('/dashboard', methods=['GET', 'POST'])
+def dashboard():
+    if 'restaurant_id' not in session:
+        return redirect('/login')
+    if request.method == 'POST':
+        dish_name = request.form.get('dish')
+        price = request.form.get('price')
+        file = request.files.get('image')
+        image_url = ''
+        if file and file.filename != '':
+            filename = secure_filename(file.filename)
+            filename = f"{session['restaurant_id']}_{filename}"
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(filepath)
+            image_url = f"/{filepath}"
+        conn = sqlite3.connect('zimmarket.db')
+        conn.execute("INSERT INTO dishes (restaurant_id, dish_name, price, image) VALUES (?,?,?,?)", (session['restaurant_id'], dish_name, price, image_url))
+        conn.commit()
+        conn.close()
+        return redirect('/dashboard')
+
+    conn = sqlite3.connect('zimmarket.db')
+    cur = conn.cursor()
+    cur.execute("SELECT id, dish_name, price, image FROM dishes WHERE restaurant_id=?", (session['restaurant_id'],))
+    my_dishes = cur.fetchall()
+    conn.close()
+    
+    dishes_html = ""
+    for d_id, d_name, d_price, d_image in my_dishes:
+        dishes_html += f"""
+        <div style='border:1px solid #ccc;padding:10px;margin:10px;display:inline-block;width:200px;border-radius:10px;text-align:center;'>
+            <img src='{d_image}' style='width:100%;height:150px;object-fit:cover;border-radius:8px;'><br>
+            <b>{d_name}</b> - ${d_price}<br><br>
+            <a href='/delete/{d_id}' style='background:red;color:white;padding:5px 10px;text-decoration:none;border-radius:5px;' onclick="return confirm('Delete this dish?')">Delete</a>
+        </div>
+        """
+
+    return f"""
+    <h2>Add New Dish with Picture</h2>
+    <form method="POST" enctype="multipart/form-data" style='background:#f9f9f9;padding:20px;border-radius:10px;width:300px;'>
+        <input type="text" name="dish" placeholder="e.g. Pizza" required style='width:100%;padding:8px;margin:5px 0;'><br>
+        <input type="text" name="price" placeholder="e.g. 12" required style='width:100%;padding:8px;margin:5px 0;'><br>
+        <input type="file" name="image" accept="image/*" required style='margin:10px 0;'><br>
+        <button type="submit" style='background:#27ae60;color:white;padding:10px;width:100%;border:none;border-radius:5px;'>Add Dish</button>
+    </form>
+    <hr><h3>Your Dishes (You can delete)</h3>
+    <div>{dishes_html if dishes_html else "No dishes yet"}</div>
+    <hr><a href="/logout">Logout</a> | <a href="/">View Customer Home</a>
+    """
+
+@app.route('/delete/<int:dish_id>')
+def delete_dish(dish_id):
+    if 'restaurant_id' not in session:
+        return redirect('/login')
+    conn = sqlite3.connect('zimmarket.db')
+    conn.execute("DELETE FROM dishes WHERE id=? AND restaurant_id=?", (dish_id, session['restaurant_id']))
+    conn.commit()
+    conn.close()
+    return redirect('/dashboard')
 
 @app.route('/register', methods=['GET','POST'])
 def register():
     if request.method == 'POST':
+        conn = sqlite3.connect('zimmarket.db')
         try:
-            conn = sqlite3.connect('zimmarket.db')
-            conn.execute("INSERT INTO restaurants (name,email,password,cuisine,phone) VALUES (?,?,?,?,?)",(request.form['name'], request.form['email'], request.form['password'], request.form['cuisine'], request.form['phone']))
-            conn.commit(); conn.close()
-            return redirect('/login')
-        except: return "Email used! <a href='/register'>Try again</a>"
-    return "<html><head><meta name='viewport' content='width=device-width, initial-scale=1.0'><style>body{font-family:Arial;background:#f5f5f5;padding:20px} .box{max-width:400px;margin:auto;background:white;padding:20px;border-radius:16px} input,select{width:100%;padding:12px;margin:8px 0;border:1px solid #ddd;border-radius:8px;box-sizing:border-box} button{width:100%;padding:12px;background:#111;color:white;border:none;border-radius:8px;font-weight:bold}</style></head><body><div class='box'><h2>Register Restaurant</h2><form method='POST'><input name='name' placeholder='Restaurant Name' required><select name='cuisine' required><option value=''>Cuisine</option><option>Traditional</option><option>Italian</option><option>Mexican</option><option>Mixed</option></select><input name='email' type='email' placeholder='Email' required><input name='phone' placeholder='Phone' required><input name='password' type='password' placeholder='Password' required><button type='submit'>Register</button></form><p><a href='/'>Back</a></p></div></body></html>"
+            conn.execute("INSERT INTO restaurants (name, email, password, cuisine) VALUES (?,?,?,?)", (request.form.get('name'), request.form.get('email'), request.form.get('password'), request.form.get('cuisine')))
+            conn.commit()
+        except: pass
+        conn.close()
+        return redirect('/login')
+    return '<h2>Register Restaurant</h2><form method="POST"><input name="name" placeholder="Restaurant Name" required><br><input name="email" placeholder="Email" required><br><input name="password" placeholder="Password" required><br><input name="cuisine" placeholder="Cuisine e.g. Italian" required><br><button>Register</button></form>'
 
 @app.route('/login', methods=['GET','POST'])
 def login():
     if request.method == 'POST':
         conn = sqlite3.connect('zimmarket.db')
         cur = conn.cursor()
-        cur.execute("SELECT id,name FROM restaurants WHERE email=? AND password=?", (request.form['email'], request.form['password']))
-        row = cur.fetchone(); conn.close()
-        if row:
-            session['rest_id']=row[0]; session['rest_name']=row[1]
+        cur.execute("SELECT id, name FROM restaurants WHERE email=? AND password=?", (request.form.get('email'), request.form.get('password')))
+        user = cur.fetchone()
+        conn.close()
+        if user:
+            session['restaurant_id'] = user[0]
             return redirect('/dashboard')
-        else: return "Wrong password <a href='/login'>Try again</a>"
-    return "<html><head><meta name='viewport' content='width=device-width, initial-scale=1.0'><style>body{font-family:Arial;background:#f5f5f5;padding:20px} .box{max-width:400px;margin:auto;background:white;padding:20px;border-radius:16px} input{width:100%;padding:12px;margin:8px 0;border:1px solid #ddd;border-radius:8px} button{width:100%;padding:12px;background:#2E7D32;color:white;border:none;border-radius:8px;font-weight:bold}</style></head><body><div class='box'><h2>Restaurant Login</h2><form method='POST'><input name='email' placeholder='Email' required><input name='password' type='password' placeholder='Password' required><button>Login</button></form><p><a href='/'>Back</a> | <a href='/register'>Register</a></p></div></body></html>"
-
-@app.route('/dashboard', methods=['GET','POST'])
-def dashboard():
-    if 'rest_id' not in session: return redirect('/login')
-    conn = sqlite3.connect('zimmarket.db')
-    if request.method == 'POST':
-        conn.execute("INSERT INTO dishes (restaurant_id,dish_name,price) VALUES (?,?,?)",(session['rest_id'], request.form['dish'], request.form['price']))
-        conn.commit()
-    cur = conn.cursor()
-    cur.execute("SELECT dish_name,price FROM dishes WHERE restaurant_id=?", (session['rest_id'],))
-    dishes = cur.fetchall(); conn.close()
-    list_dishes = "".join([f"<li>{d[0]} - {d[1]}</li>" for d in dishes]) or "<li>No dishes</li>"
-    return f"<html><head><meta name='viewport' content='width=device-width, initial-scale=1.0'><style>body{{font-family:Arial;background:#f5f5f5;padding:15px}} .box{{max-width:500px;margin:auto;background:white;padding:20px;border-radius:16px}} input{{width:100%;padding:10px;margin:6px 0;border:1px solid #ddd;border-radius:8px}} button{{padding:10px 16px;background:#111;color:white;border:none;border-radius:8px}}</style></head><body><div class='box'><h2>Welcome {session['rest_name']}!</h2><form method='POST'><input name='dish' placeholder='Dish e.g. Pizza' required><input name='price' placeholder='Price e.g. $12' required><button>Add Dish</button></form><h3>Your Dishes:</h3><ul>{list_dishes}</ul><p><a href='/'>Marketplace</a> | <a href='/logout'>Logout</a></p></div></body></html>"
+    return '<h2>Login</h2><form method="POST"><input name="email" placeholder="email"><br><input name="password" type="password" placeholder="password"><br><button>Login</button></form>'
 
 @app.route('/logout')
 def logout():
-    session.clear(); return redirect('/')
+    session.clear()
+    return redirect('/')
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
+    app.run(debug=True)
