@@ -1,13 +1,13 @@
-from flask import Flask, render_template_string, request, redirect, url_for
+from flask import Flask, render_template_string, request, redirect
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
-from datetime import datetime
+from datetime import datetime, date, time
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'zim-restaurant-portal-final'
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///zim.db')
+app.config['SECRET_KEY'] = 'tableahead-clean-v4'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///tableahead.db')
 if app.config['SQLALCHEMY_DATABASE_URI'].startswith("postgres://"):
     app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace("postgres://", "postgresql://", 1)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -15,46 +15,83 @@ db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
+# ===== DATABASE MODELS =====
 class User(UserMixin, db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    phone = db.Column(db.String(20), nullable=False)
-    password_hash = db.Column(db.String(200), nullable=False)
-    is_admin = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    id=db.Column(db.Integer, primary_key=True)
+    email=db.Column(db.String(120), unique=True, nullable=False)
+    phone=db.Column(db.String(20), nullable=False)
+    password_hash=db.Column(db.String(200), nullable=False)
+    is_admin=db.Column(db.Boolean, default=False)
 
 class Restaurant(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False, unique=True)
-    description = db.Column(db.String(500), default='Best food in Harare')
-    location = db.Column(db.String(200), default='Harare, Zimbabwe')
-    phone = db.Column(db.String(20), default='0770000000')
-    image = db.Column(db.String(500), default='https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=500')
-    rating = db.Column(db.Float, default=4.8)
-    delivery_time = db.Column(db.String(20), default='30-45 min')
-    is_open = db.Column(db.Boolean, default=True)
-    ecocash_number = db.Column(db.String(100), default='To be added after agreement')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    id=db.Column(db.Integer, primary_key=True)
+    name=db.Column(db.String(100), unique=True)
+    location=db.Column(db.String(200), default='Harare')
+    phone=db.Column(db.String(20), default='0770000000')
+    image=db.Column(db.String(500), default='https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=600')
+    ecocash=db.Column(db.String(100), default='EcoCash to be set after agreement')
+
+class Supplier(db.Model):
+    id=db.Column(db.Integer, primary_key=True)
+    restaurant_id=db.Column(db.Integer, db.ForeignKey('restaurant.id'))
+    name=db.Column(db.String(100))
+    phone=db.Column(db.String(20))
+    category=db.Column(db.String(50))
+    last_price_note=db.Column(db.String(200), default='')
+
+class Ingredient(db.Model):
+    id=db.Column(db.Integer, primary_key=True)
+    restaurant_id=db.Column(db.Integer, db.ForeignKey('restaurant.id'))
+    name=db.Column(db.String(100))
+    unit=db.Column(db.String(20), default='kg')
+    current_qty=db.Column(db.Float, default=0)
+    min_qty=db.Column(db.Float, default=5)
+    cost_per_unit=db.Column(db.Float, default=0)
+    supplier_id=db.Column(db.Integer, db.ForeignKey('supplier.id'), nullable=True)
+    supplier=db.relationship('Supplier')
 
 class Dish(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    price = db.Column(db.Float, nullable=False)
-    image = db.Column(db.String(500), default='https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=500')
-    restaurant_id = db.Column(db.Integer, db.ForeignKey('restaurant.id'))
-    restaurant = db.relationship('Restaurant', backref='dishes')
+    id=db.Column(db.Integer, primary_key=True)
+    restaurant_id=db.Column(db.Integer, db.ForeignKey('restaurant.id'))
+    name=db.Column(db.String(100))
+    price=db.Column(db.Float)
+    image=db.Column(db.String(500), default='https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=500')
+    restaurant=db.relationship('Restaurant', backref='dishes')
 
-class Order(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    restaurant_id = db.Column(db.Integer, db.ForeignKey('restaurant.id'))
-    dish_name = db.Column(db.String(100))
-    amount = db.Column(db.Float)
-    status = db.Column(db.String(20), default='Pending')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+class Recipe(db.Model):
+    id=db.Column(db.Integer, primary_key=True)
+    dish_id=db.Column(db.Integer, db.ForeignKey('dish.id'))
+    ingredient_id=db.Column(db.Integer, db.ForeignKey('ingredient.id'))
+    qty_needed=db.Column(db.Float)
+    dish=db.relationship('Dish', backref='recipes')
+    ingredient=db.relationship('Ingredient')
+
+class Booking(db.Model):
+    id=db.Column(db.Integer, primary_key=True)
+    restaurant_id=db.Column(db.Integer, db.ForeignKey('restaurant.id'))
+    user_id=db.Column(db.Integer, db.ForeignKey('user.id'))
+    type=db.Column(db.String(20)) # Table or Preorder
+    date=db.Column(db.Date)
+    time=db.Column(db.String(20))
+    people=db.Column(db.Integer, default=2)
+    dish_name=db.Column(db.String(100), nullable=True)
+    qty=db.Column(db.Integer, default=1)
+    notes=db.Column(db.String(300))
+    status=db.Column(db.String(20), default='Pending')
+    created_at=db.Column(db.DateTime, default=datetime.utcnow)
+
+class Purchase(db.Model):
+    id=db.Column(db.Integer, primary_key=True)
+    restaurant_id=db.Column(db.Integer, db.ForeignKey('restaurant.id'))
+    supplier_id=db.Column(db.Integer, db.ForeignKey('supplier.id'))
+    ingredient_name=db.Column(db.String(100))
+    qty=db.Column(db.Float)
+    total_cost=db.Column(db.Float)
+    invoice_no=db.Column(db.String(50))
+    created_at=db.Column(db.DateTime, default=datetime.utcnow)
 
 @login_manager.user_loader
-def load_user(user_id): return User.query.get(int(user_id))
+def load_user(uid): return User.query.get(int(uid))
 
 with app.app_context():
     db.create_all()
@@ -62,253 +99,184 @@ with app.app_context():
         db.session.add(User(email='admin@zimmarket.co.zw', phone='0770000000', password_hash=generate_password_hash('Admin123!'), is_admin=True))
         db.session.commit()
     if Restaurant.query.count()==0:
-        rests=[
-            Restaurant(name='Chicken Inn', description='Zimbabwe favourite chicken & burgers', location='Samora Machel Ave, Harare CBD', phone='0291234567', image='https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=600', rating=4.8, delivery_time='20-30 min'),
-            Restaurant(name="Mama's Traditional Kitchen", description='Authentic sadza, muriwo, beef, chicken', location='Mbare, Harare', phone='0771234567', image='https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600', rating=4.9, delivery_time='25-35 min'),
-            Restaurant(name='Chicken Slice', description='Flame grilled chicken specialists', location='Angwa St, Harare', phone='0719876543', image='https://images.unsplash.com/photo-1626645738196-c2a046020eb6?w=600', rating=4.7, delivery_time='15-25 min'),
-            Restaurant(name='Pizza Inn', description='Best pizza in Zim - fresh & hot', location='Borrowdale, Harare', phone='0778889999', image='https://images.unsplash.com/photo-1513104890138-7c749659a591?w=600', rating=4.8, delivery_time='30-40 min'),
-        ]
-        db.session.add_all(rests); db.session.commit()
-        # Add dishes to each
-        r1=Restaurant.query.filter_by(name='Chicken Inn').first()
-        r2=Restaurant.query.filter_by(name="Mama's Traditional Kitchen").first()
-        r3=Restaurant.query.filter_by(name='Chicken Slice').first()
-        r4=Restaurant.query.filter_by(name='Pizza Inn').first()
-        dishes=[
-            Dish(name='2 Piece Chicken & Chips',price=6.5,restaurant_id=r1.id,image='https://images.unsplash.com/photo-1626645738196-c2a046020eb6?w=500'),
-            Dish(name='Double Cheese Burger',price=5.5,restaurant_id=r1.id,image='https://images.unsplash.com/photo-1568909344668-6f14a07b56a0?w=500'),
-            Dish(name='Sadza & Road Runner',price=4.5,restaurant_id=r2.id),
-            Dish(name='Sadza & Beef Stew',price=5.0,restaurant_id=r2.id),
-            Dish(name='Full Chicken Braai',price=14.0,restaurant_id=r3.id,image='https://images.unsplash.com/photo-1615937657715-bc7b4b7962c1?w=500'),
-            Dish(name='Chicken Burger',price=4.5,restaurant_id=r3.id),
-            Dish(name='Margherita Pizza Large',price=12.0,restaurant_id=r4.id,image='https://images.unsplash.com/photo-1513104890138-7c749659a591?w=500'),
-            Dish(name='Pepperoni Pizza',price=13.5,restaurant_id=r4.id),
-        ]
-        db.session.add_all(dishes); db.session.commit()
+        r=Restaurant(name='Chicken Inn', location='Samora Machel Ave, Harare CBD', phone='0291234567', ecocash='0771234567 - EcoCash (To be set)', image='https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=600')
+        db.session.add(r); db.session.commit()
+        s1=Supplier(restaurant_id=r.id, name="Irvine's Chickens", phone='0772000001', category='Chicken', last_price_note='Chicken $4.5/kg stable')
+        s2=Supplier(restaurant_id=r.id, name='MegaMarket', phone='0772000002', category='General', last_price_note='Tomatoes up 30% this month!')
+        s3=Supplier(restaurant_id=r.id, name='Delta Beverages', phone='0772000003', category='Drinks', last_price_note='Coke price stable')
+        db.session.add_all([s1,s2,s3]); db.session.commit()
+        i1=Ingredient(restaurant_id=r.id, name='Chicken Breast', unit='kg', current_qty=10, min_qty=5, cost_per_unit=4.5, supplier_id=s1.id)
+        i2=Ingredient(restaurant_id=r.id, name='Burger Buns', unit='pcs', current_qty=50, min_qty=20, cost_per_unit=0.1, supplier_id=s2.id)
+        i3=Ingredient(restaurant_id=r.id, name='Lettuce', unit='kg', current_qty=2, min_qty=2, cost_per_unit=2, supplier_id=s2.id)
+        i4=Ingredient(restaurant_id=r.id, name='Tomatoes', unit='kg', current_qty=1, min_qty=3, cost_per_unit=3, supplier_id=s2.id)
+        db.session.add_all([i1,i2,i3,i4]); db.session.commit()
+        d1=Dish(restaurant_id=r.id, name='Chicken Burger', price=5.5, image='https://images.unsplash.com/photo-1568909344668-6f14a07b56a0?w=500')
+        d2=Dish(restaurant_id=r.id, name='2 Piece & Chips', price=6.5, image='https://images.unsplash.com/photo-1626645738196-c2a046020eb6?w=500')
+        db.session.add_all([d1,d2]); db.session.commit()
+        db.session.add_all([Recipe(dish_id=d1.id, ingredient_id=i1.id, qty_needed=0.2), Recipe(dish_id=d1.id, ingredient_id=i2.id, qty_needed=1), Recipe(dish_id=d1.id, ingredient_id=i3.id, qty_needed=0.02)])
+        db.session.commit()
 
-CSS="""
-<style>
-*{font-family:Inter,system-ui;margin:0} body{background:#f7f7f7}
-.nav{display:flex;justify-content:space-between;padding:14px 24px;background:#fff;align-items:center;position:sticky;top:0;z-index:20;box-shadow:0 1px 3px rgba(0,0,0,.06)}
-.logo{font-weight:900;font-size:22px;text-decoration:none;color:#000} .logo span{color:#06c167}
-.btn{padding:10px 18px;border-radius:24px;text-decoration:none;font-weight:600;font-size:14px;display:inline-block;border:0;cursor:pointer} .btn-light{background:#eee;color:#000} .btn-dark{background:#000;color:#fff} .btn-green{background:#06c167;color:#fff}
-.wrap{max-width:1100px;margin:0 auto;padding:20px}
-.rest-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:20px}
-.rest-card{background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.06);cursor:pointer;transition:.2s} .rest-card:hover{transform:translateY(-4px)}
-.rest-card img{width:100%;height:200px;object-fit:cover} .rest-body{padding:16px}
-.rest-top{display:flex;justify-content:space-between;align-items:center}
-.badge{background:#f0f0f0;padding:4px 10px;border-radius:12px;font-size:12px}
-.hero{display:flex;gap:30px;padding:24px;background:#fff;border-radius:20px;margin-bottom:20px}
-.hero img{width:340px;height:220px;border-radius:16px;object-fit:cover}
-.menu-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
-.menu-card{background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.05)}
-.menu-card img{width:100%;height:160px;object-fit:cover}
-input{width:100%;padding:12px;border:1px solid #ddd;border-radius:10px;margin:6px 0}
-</style>
-"""
+CSS="""<style>*{font-family:Inter,system-ui;margin:0} body{background:#f7f7f7} .nav{display:flex;justify-content:space-between;padding:14px 20px;background:#fff;position:sticky;top:0;z-index:10;box-shadow:0 1px 4px rgba(0,0,0,.06)} .logo{font-weight:900;font-size:20px;text-decoration:none;color:#000} .logo span{color:#06c167} .btn{padding:9px 16px;border-radius:20px;text-decoration:none;font-weight:600;font-size:13px;border:0;cursor:pointer;display:inline-block} .btn-dark{background:#000;color:#fff} .btn-light{background:#eee;color:#000} .btn-green{background:#06c167;color:#fff} .wrap{max-width:1100px;margin:0 auto;padding:16px} .card{background:#fff;border-radius:14px;padding:16px;box-shadow:0 1px 6px rgba(0,0,0,.05);margin-bottom:14px} input,select,textarea{padding:10px;border:1px solid #ddd;border-radius:8px;margin:4px 0;width:100%;font-size:14px} .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px} .low{background:#fff3cd;border:1px solid #ffc107;padding:8px;border-radius:8px;font-size:13px;margin:6px 0} .out{background:#f8d7da;border:1px solid #dc3545} table{width:100%;font-size:13px;border-collapse:collapse} th{color:#888;text-align:left;padding:8px} td{padding:8px;border-top:1px solid #eee}</style>"""
+
+def is_admin(): return current_user.is_authenticated and current_user.is_admin
 
 @app.route('/')
 def home():
-    restaurants=Restaurant.query.filter_by(is_open=True).all()
-    selected=request.args.get('restaurant')
+    rests=Restaurant.query.all()
     return render_template_string(CSS+"""
-<div class="nav"><a href="/" class="logo">Zim<span>Market</span></a>
-<div style="display:flex;gap:10px;align-items:center">
-{% if current_user.is_authenticated %}<span style="font-size:13px">Hi, {{current_user.email.split('@')[0]}}</span>{% if current_user.is_admin %}<a href="/admin" class="btn btn-green" style="padding:6px 12px">Admin</a>{% endif %}<a href="/logout" class="btn btn-light">Logout</a>
-{% else %}<a href="/login" class="btn btn-light">Log in</a><a href="/signup" class="btn btn-dark">Sign up</a>{% endif %}
-</div></div>
-<div style="background:#fff;padding:30px 24px"><h1 style="font-size:42px;font-weight:900">Restaurants in Harare</h1><p style="color:#666;margin-top:6px">Click any restaurant to see its full menu, location & order directly from that restaurant</p></div>
-<div style="background:#fff;padding:12px 24px;display:flex;gap:10px;overflow:auto;border-top:1px solid #eee;border-bottom:1px solid #eee;position:sticky;top:58px;z-index:10">
-<a href="/"><div class="btn {{'btn-dark' if not selected else 'btn-light'}}" style="white-space:nowrap">All Restaurants</div></a>
-{% for r in restaurants %}<a href="/restaurant/{{r.id}}"><div class="btn btn-light" style="white-space:nowrap">{{r.name}}</div></a>{% endfor %}
-</div>
-<div class="wrap">
-<div class="rest-grid">
-{% for r in restaurants %}
-<a href="/restaurant/{{r.id}}" style="text-decoration:none;color:#000">
-<div class="rest-card"><img src="{{r.image}}"><div class="rest-body">
-<div class="rest-top"><b style="font-size:18px">{{r.name}}</b><span class="badge">★ {{r.rating}}</span></div>
-<p style="color:#666;font-size:14px;margin:6px 0">{{r.description}}</p>
-<p style="font-size:13px;color:#888">{{r.location}} • {{r.delivery_time}} • {{r.dishes|length}} dishes</p>
-</div></div></a>
-{% endfor %}
-</div></div>
-""", restaurants=restaurants, selected=selected)
+<div class="nav"><a href="/" class="logo">TABLEAHEAD <span>OS</span></a><div>{% if current_user.is_authenticated %}<span style="font-size:12px">{{current_user.email.split('@')[0]}}</span> {% if is_admin() %}<a href="/admin" class="btn btn-green">Admin OS</a>{% endif %} <a href="/logout" class="btn btn-light">Logout</a>{% else %}<a href="/login" class="btn btn-light">Login</a> <a href="/signup" class="btn btn-dark">Sign up</a>{% endif %}</div></div>
+<div style="background:#fff;padding:28px 20px"><h1 style="font-size:38px;font-weight:900">Front: Menu, Booking, Pre-order</h1><p style="color:#666;margin-top:6px">Click restaurant → See its portal → Book table or Pre-order food for tomorrow. System checks stock automatically.</p></div>
+<div class="wrap"><div class="grid">{% for r in rests %}<a href="/restaurant/{{r.id}}" style="text-decoration:none;color:#000"><div class="card" style="padding:0;overflow:hidden"><img src="{{r.image}}" style="width:100%;height:180px;object-fit:cover"><div style="padding:14px"><b style="font-size:18px">{{r.name}}</b><p style="font-size:13px;color:#666">{{r.location}} • {{r.phone}}<br>💰 {{r.ecocash}} • {{r.dishes|length}} dishes</p></div></div></a>{% endfor %}</div></div>
+""")
 
-@app.route('/restaurant/<int:id>')
-def restaurant_portal(id):
+@app.route('/restaurant/<int:id>', methods=['GET','POST'])
+def restaurant(id):
     r=Restaurant.query.get_or_404(id)
+    ingredients=Ingredient.query.filter_by(restaurant_id=id).all()
+    low=[i for i in ingredients if i.current_qty <= i.min_qty]
     return render_template_string(CSS+"""
-<div class="nav"><a href="/" class="logo">Zim<span>Market</span></a><a href="/" class="btn btn-light">← All Restaurants</a></div>
+<div class="nav"><a href="/" class="logo">TABLEAHEAD</a><a href="/" class="btn btn-light">← All Restaurants</a></div>
 <div class="wrap">
-<div class="hero">
-<img src="{{r.image}}">
-<div style="flex:1"><h1 style="font-size:36px;font-weight:900">{{r.name}}</h1>
-<p style="color:#666;margin:8px 0">{{r.description}}</p>
-<p style="font-size:14px">📍 {{r.location}}<br>📞 {{r.phone}}<br>⭐ {{r.rating}} • {{r.delivery_time}} • {% if r.is_open %} <span style="color:green">● Open now</span> {% else %} Closed {% endif %}</p>
-<div style="margin-top:14px;background:#f7f7f7;padding:12px;border-radius:10px;font-size:13px"><b>Payment to this restaurant:</b><br>EcoCash / ZiG / USD: {{r.ecocash_number}}<br><i>Payment goes directly to {{r.name}} owner - after agreement</i></div>
-</div></div>
-<h2 style="margin:10px 0">{{r.dishes|length}} Menu Items</h2>
-<div class="menu-grid">
+<div style="display:grid;grid-template-columns:360px 1fr;gap:16px">
+<div>
+<div class="card" style="padding:0;overflow:hidden"><img src="{{r.image}}" style="width:100%;height:200px;object-fit:cover"><div style="padding:14px"><h2>{{r.name}}</h2><p style="font-size:13px;color:#666">📍 {{r.location}}<br>📞 {{r.phone}}<br>💰 Payment to owner: {{r.ecocash}}<br><br>Stock check before pre-order: System verifies ingredients.</p></div></div>
+<div class="card"><h4>Stock Status</h4>{% for i in ingredients %}<div class="{{'out low' if i.current_qty==0 else 'low' if i.current_qty<=i.min_qty else ''}}" style="padding:6px 8px;margin:4px 0;border-radius:6px;background:{{'#fff3cd' if i.current_qty<=i.min_qty and i.current_qty>0 else '#f8d7da' if i.current_qty==0 else '#e8f8f0'}};font-size:12px">{{i.name}}: {{i.current_qty}}{{i.unit}} / min {{i.min_qty}}{{i.unit}} - {{'OUT!' if i.current_qty==0 else 'LOW' if i.current_qty<=i.min_qty else 'OK'}}</div>{% endfor %}</div>
+
+<div class="card"><h4>1. Book Table</h4><form method="POST" action="/book/{{r.id}}"><input type="hidden" name="type" value="Table"><input type="date" name="date" required><input type="time" name="time" value="19:00" required><input type="number" name="people" placeholder="People e.g. 4" required><textarea name="notes" placeholder="Notes e.g. Window seat"></textarea><button class="btn btn-dark" style="width:100%;margin-top:6px">Book Table</button></form></div>
+</div>
+
+<div>
+<h3>2. Pre-Order Menu - Stock auto deducts</h3><p style="font-size:13px;color:#666">Customer pre-orders 4x Rump Steak at 13:30 tomorrow → System checks steak & veg → If not enough → Adds to shopping list → Chef sees prep list</p>
+<div class="grid" style="margin-top:12px">
 {% for d in r.dishes %}
-<div class="menu-card"><img src="{{d.image}}"><div style="padding:14px">
-<b>{{d.name}}</b><p style="color:#666;font-size:13px;margin:4px 0">${{d.price}}</p>
-{% if current_user.is_authenticated %}
-<form method="POST" action="/order/{{d.id}}"><button class="btn btn-green" style="width:100%;margin-top:6px">Order now - ${{d.price}}</button></form>
-{% else %}
-<a href="/login" class="btn btn-dark" style="width:100%;margin-top:6px;text-align:center">Login to Order</a>
-{% endif %}
+<div class="card" style="padding:0;overflow:hidden"><img src="{{d.image}}" style="width:100%;height:140px;object-fit:cover"><div style="padding:12px"><b>{{d.name}} - ${{d.price}}</b><br><span style="font-size:11px;color:#666">Uses: {% for rec in d.recipes %}{{rec.ingredient.name}} {{rec.qty_needed}}{{rec.ingredient.unit}} {% endfor %}</span>
+<form method="POST" action="/book/{{r.id}}" style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px">
+<input type="hidden" name="type" value="Preorder"><input type="hidden" name="dish_name" value="{{d.name}}"><input type="date" name="date" required><input type="time" name="time" value="13:30" required><input type="number" name="qty" placeholder="Qty e.g. 4" value="1" required><input type="number" name="people" placeholder="People" value="1"><button class="btn btn-green" style="grid-column:1/3">Pre-order for date - Check Stock</button>
+</form>
 </div></div>
 {% endfor %}
 </div>
+<div class="card" style="margin-top:16px"><h4>Recent Bookings/Pre-orders</h4>{% for b in bookings %}<div style="padding:6px 0;border-bottom:1px solid #eee;font-size:13px"><b>{{b.type}}</b> - {{b.dish_name or ''}} x{{b.qty}} - {{b.date}} {{b.time}} - {{b.people}} people - {{b.status}}</div>{% endfor %}</div>
 </div>
-""", r=r)
+</div>
+</div>
+""", r=r, ingredients=ingredients, low=low, bookings=Booking.query.filter_by(restaurant_id=id).order_by(Booking.created_at.desc()).limit(10).all())
+
+@app.route('/book/<int:rid>', methods=['POST'])
+@login_required
+def book(rid):
+    r=Restaurant.query.get(rid)
+    btype=request.form['type']; dname=request.form.get('dish_name'); qty=int(request.form.get('qty',1))
+    # STOCK CHECK FOR PREORDER
+    message="Booked"
+    if btype=='Preorder' and dname:
+        dish=Dish.query.filter_by(restaurant_id=rid, name=dname).first()
+        if dish:
+            can_make=True
+            for rec in dish.recipes:
+                if rec.ingredient.current_qty < rec.qty_needed*qty: can_make=False
+            if not can_make:
+                message="Not enough stock - Added to shopping list!"
+            else:
+                for rec in dish.recipes:
+                    rec.ingredient.current_qty -= rec.qty_needed*qty
+    b=Booking(restaurant_id=rid, user_id=current_user.id, type=btype, date=datetime.strptime(request.form['date'], '%Y-%m-%d').date(), time=request.form['time'], people=int(request.form.get('people',1)), dish_name=dname, qty=qty, notes=request.form.get('notes',''), status=message)
+    db.session.add(b); db.session.commit()
+    return redirect(f'/restaurant/{rid}')
 
 @app.route('/signup', methods=['GET','POST'])
 def signup():
-    err=None
     if request.method=='POST':
-        e=request.form['email'].lower().strip(); p=request.form['phone']; pw=request.form['password']
-        if User.query.filter_by(email=e).first(): err="Email exists"
-        else:
-            u=User(email=e, phone=p, password_hash=generate_password_hash(pw)); db.session.add(u); db.session.commit(); login_user(u); return redirect('/')
-    return render_template_string(CSS+"""<div class="nav"><a href="/" class="logo">Zim<span>Market</span></a></div><div class="wrap" style="max-width:420px"><div style="background:#fff;padding:24px;border-radius:16px"><h2>Create Account</h2><p style="color:#666;font-size:14px">Email, phone, password required</p>{% if err %}<div style="background:#ffe0e0;padding:8px;border-radius:6px;color:#900;margin:10px 0">{{err}}</div>{% endif %}<form method="POST"><input name="email" type="email" placeholder="Email" required><input name="phone" placeholder="Phone number e.g. 0771234567" required><input name="password" type="password" placeholder="Password" required><button class="btn btn-dark" style="width:100%;padding:14px;margin-top:10px">Sign up</button></form><p style="text-align:center;margin-top:12px;font-size:14px"><a href="/login">Already have account? Login</a></p><p style="text-align:center;margin-top:10px;font-size:11px;background:#f0f0f0;padding:8px;border-radius:8px">Admin: admin@zimmarket.co.zw / Admin123!</p></div></div>""", err=err)
+        e=request.form['email'].lower().strip(); ph=request.form['phone']; pw=request.form['password']
+        if not User.query.filter_by(email=e).first():
+            u=User(email=e, phone=ph, password_hash=generate_password_hash(pw)); db.session.add(u); db.session.commit(); login_user(u); return redirect('/')
+    return render_template_string(CSS+"""<div class="nav"><a href="/" class="logo">TABLEAHEAD</a></div><div class="wrap" style="max-width:400px"><div class="card"><h3>Sign up - Email, Phone, Password</h3><form method="POST"><input name="email" type="email" placeholder="Email" required><input name="phone" placeholder="Phone 077..." required><input name="password" type="password" placeholder="Password" required><button class="btn btn-dark" style="width:100%;margin-top:8px">Sign up</button></form><p style="font-size:11px;margin-top:10px;background:#f0f0f0;padding:8px;border-radius:6px">Admin: admin@zimmarket.co.zw / Admin123!</p></div></div>""")
 
 @app.route('/login', methods=['GET','POST'])
 def login():
-    err=None
     if request.method=='POST':
-        e=request.form['email'].lower().strip(); pw=request.form['password']
-        u=User.query.filter_by(email=e).first()
+        e=request.form['email'].lower().strip(); pw=request.form['password']; u=User.query.filter_by(email=e).first()
         if u and check_password_hash(u.password_hash, pw): login_user(u); return redirect('/admin' if u.is_admin else '/')
-        err="Invalid login"
-    return render_template_string(CSS+"""<div class="nav"><a href="/" class="logo">Zim<span>Market</span></a></div><div class="wrap" style="max-width:420px"><div style="background:#fff;padding:24px;border-radius:16px"><h2>Login</h2>{% if err %}<div style="background:#ffe0e0;padding:8px;border-radius:6px;color:#900;margin:10px 0">{{err}}</div>{% endif %}<form method="POST"><input name="email" type="email" placeholder="Email" required><input name="password" type="password" placeholder="Password" required><button class="btn btn-dark" style="width:100%;padding:14px;margin-top:10px">Log in</button></form><p style="text-align:center;margin-top:12px;font-size:14px"><a href="/signup">No account? Sign up</a></p></div></div>""", err=err)
+    return render_template_string(CSS+"""<div class="nav"><a href="/" class="logo">TABLEAHEAD</a></div><div class="wrap" style="max-width:400px"><div class="card"><h3>Login</h3><form method="POST"><input name="email" type="email" placeholder="Email" required><input name="password" type="password" placeholder="Password" required><button class="btn btn-dark" style="width:100%;margin-top:8px">Login</button></form></div></div>""")
 
 @app.route('/logout')
 def logout(): logout_user(); return redirect('/')
-@app.route('/order/<int:dish_id>', methods=['POST'])
-@login_required
-def order(dish_id):
-    d=Dish.query.get(dish_id)
-    if d: 
-        o=Order(user_id=current_user.id, restaurant_id=d.restaurant_id, dish_name=d.name, amount=d.price)
-        db.session.add(o); db.session.commit()
-    return redirect(f'/restaurant/{d.restaurant_id}?ordered=1')
 
 @app.route('/admin')
 @login_required
 def admin():
-    if not current_user.is_admin: return "Admin only",403
-    tab=request.args.get('tab','dash')
-    users=User.query.all(); rests=Restaurant.query.all(); dishes=Dish.query.all(); orders=Order.query.order_by(Order.created_at.desc()).all()
+    if not is_admin(): return "Admin only",403
+    tab=request.args.get('tab','front'); rid=request.args.get('rid',1,type=int)
+    rests=Restaurant.query.all(); r=Restaurant.query.get(rid) if rests else None
+    if not r and rests: r=rests[0]; rid=r.id
+    ingredients=Ingredient.query.filter_by(restaurant_id=rid).all() if r else []
+    suppliers=Supplier.query.filter_by(restaurant_id=rid).all() if r else []
+    dishes=Dish.query.filter_by(restaurant_id=rid).all() if r else []
+    bookings=Booking.query.filter_by(restaurant_id=rid).order_by(Booking.created_at.desc()).all() if r else []
+    purchases=Purchase.query.filter_by(restaurant_id=rid).order_by(Purchase.created_at.desc()).all() if r else []
+    low=[i for i in ingredients if i.current_qty<=i.min_qty]
     return render_template_string(CSS+"""
-<div class="nav"><a href="/" class="logo">Zim<span>Market</span> Admin</a><div style="display:flex;gap:10px"><a href="/" class="btn btn-light">View Site</a><a href="/logout" class="btn btn-dark">Logout</a></div></div>
-<div class="wrap"><h2>Admin Control Panel - Full System Control</h2><br>
-<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
-<a href="/admin?tab=dash" class="btn {{'btn-dark' if tab=='dash' else 'btn-light'}}">Dashboard</a>
-<a href="/admin?tab=restaurants" class="btn {{'btn-dark' if tab=='restaurants' else 'btn-light'}}">Restaurants ({{rests|length}})</a>
-<a href="/admin?tab=dishes" class="btn {{'btn-dark' if tab=='dishes' else 'btn-light'}}">Dishes ({{dishes|length}})</a>
-<a href="/admin?tab=users" class="btn {{'btn-dark' if tab=='users' else 'btn-light'}}">Users ({{users|length}})</a>
-<a href="/admin?tab=orders" class="btn {{'btn-dark' if tab=='orders' else 'btn-light'}}">Orders ({{orders|length}})</a>
+<div class="nav"><a href="/" class="logo">TABLEAHEAD <span>OS - CLEAN</span></a><div><a href="/" class="btn btn-light">Site</a> <a href="/logout" class="btn btn-dark">Logout</a></div></div>
+<div class="wrap">
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+<select onchange="location='/admin?tab='+tab+'&rid='+this.value" style="width:180px"><script>var tab="{{tab}}"</script>{% for rest in rests %}<option value="{{rest.id}}" {{'selected' if rest.id==rid else ''}}>{{rest.name}}</option>{% endfor %}</select>
+<a href="/admin?tab=front&rid={{rid}}" class="btn {{'btn-dark' if tab=='front' else 'btn-light'}}">Front: Bookings</a>
+<a href="/admin?tab=stock&rid={{rid}}" class="btn {{'btn-dark' if tab=='stock' else 'btn-light'}}">A. Stock {% if low %}🔴{{low|length}}{% endif %}</a>
+<a href="/admin?tab=suppliers&rid={{rid}}" class="btn {{'btn-dark' if tab=='suppliers' else 'btn-light'}}">C. Suppliers & Purchases</a>
+<a href="/admin?tab=menu&rid={{rid}}" class="btn {{'btn-dark' if tab=='menu' else 'btn-light'}}">Menu/Recipes</a>
 </div>
-{% if tab=='dash' %}
-<div style="display:flex;gap:12px;flex-wrap:wrap"><div style="background:#fff;padding:20px;border-radius:12px"><b style="font-size:24px">{{rests|length}}</b><br>Restaurants</div><div style="background:#fff;padding:20px;border-radius:12px"><b style="font-size:24px">{{users|length}}</b><br>Users</div><div style="background:#fff;padding:20px;border-radius:12px"><b style="font-size:24px">{{dishes|length}}</b><br>Dishes</div><div style="background:#fff;padding:20px;border-radius:12px"><b style="font-size:24px">{{orders|length}}</b><br>Orders</div></div>
-<div style="background:#fff;padding:20px;border-radius:16px;margin-top:16px"><h3>Recent Orders (Payment to each restaurant owner)</h3>
-{% for o in orders[:15] %}<div style="padding:10px 0;border-bottom:1px solid #eee;display:flex;justify-content:space-between"><span>#{{o.id}} - {{o.dish_name}} - ${{o.amount}} - Restaurant ID {{o.restaurant_id}} - User {{o.user_id}}</span><span>{{o.status}} {{o.created_at.strftime('%d/%m')}}</span></div>{% endfor %}
-</div>
-{% endif %}
-{% if tab=='restaurants' %}
-<div style="background:#fff;padding:20px;border-radius:16px">
-<h3>Add New Restaurant (After you agree with owner)</h3>
-<form method="POST" action="/admin/add-restaurant" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-<input name="name" placeholder="Restaurant Name e.g. Chicken Inn" required>
-<input name="location" placeholder="Location e.g. Samora Machel Ave" required>
-<input name="phone" placeholder="Owner Phone / EcoCash number" required>
-<input name="image" placeholder="Image URL (or leave empty)">
-<input name="description" placeholder="Description" style="grid-column:1/3">
-<input name="ecocash" placeholder="EcoCash / Payment details - e.g. EcoCash 077xxxxxx" style="grid-column:1/3">
-<button class="btn btn-green" style="grid-column:1/3;margin-top:10px">Add Restaurant Portal</button>
-</form></div>
-<div class="rest-grid" style="margin-top:20px">
-{% for r in rests %}<div style="background:#fff;border-radius:16px;overflow:hidden"><img src="{{r.image}}" style="width:100%;height:160px;object-fit:cover"><div style="padding:14px"><b>{{r.name}}</b><p style="font-size:13px;color:#666">{{r.location}}<br>📞 {{r.phone}}<br>EcoCash: {{r.ecocash_number}}<br>{{r.dishes|length}} dishes</p><a href="/restaurant/{{r.id}}" style="font-size:13px">View Portal</a> | <a href="/admin/del-restaurant/{{r.id}}" style="color:red;font-size:13px" onclick="return confirm('Delete restaurant?')">Delete</a></div></div>{% endfor %}
-</div>
-{% endif %}
-{% if tab=='dishes' %}
-<div style="background:#fff;padding:20px;border-radius:16px"><h3>Add Dish to Restaurant</h3>
-<form method="POST" action="/admin/add-dish"><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-<select name="restaurant_id" required>{% for r in rests %}<option value="{{r.id}}">{{r.name}}</option>{% endfor %}</select>
-<input name="name" placeholder="Dish name e.g. Burger" required>
-<input name="price" type="number" step="0.01" placeholder="Price e.g. 5.5" required>
-<input name="image" placeholder="Image URL">
-</div><button class="btn btn-green" style="margin-top:10px">Add Dish</button></form></div>
-<div class="menu-grid" style="margin-top:16px">
-{% for d in dishes %}<div class="menu-card"><img src="{{d.image}}"><div style="padding:12px"><b>{{d.name}}</b> - ${{d.price}}<br><span style="font-size:12px;color:#666">{{d.restaurant.name if d.restaurant else 'No restaurant'}} - {{d.restaurant.location if d.restaurant else ''}}</span><br><a href="/admin/del-dish/{{d.id}}" style="color:red;font-size:12px">Delete</a></div></div>{% endfor %}
-</div>
-{% endif %}
-{% if tab=='users' %}
-<div style="background:#fff;padding:20px;border-radius:16px"><table style="width:100%;font-size:14px"><tr style="color:#888;text-align:left"><th>Email</th><th>Phone</th><th>Admin</th><th>Action</th></tr>{% for u in users %}<tr><td>{{u.email}}</td><td>{{u.phone}}</td><td>{{u.is_admin}}</td><td><a href="/admin/make-admin/{{u.id}}">Toggle Admin</a> | <a href="/admin/del-user/{{u.id}}" style="color:red">Delete</a></td></tr>{% endfor %}</table></div>
-{% endif %}
-{% if tab=='orders' %}
-<div style="background:#fff;padding:20px;border-radius:16px"><h3>All Orders - Payment to each restaurant owner</h3>{% for o in orders %}<div style="padding:10px 0;border-bottom:1px solid #eee"><b>#{{o.id}} {{o.dish_name}} - ${{o.amount}}</b> - Restaurant {{o.restaurant_id}} - Status {{o.status}} - User {{o.user_id}} - {{o.created_at.strftime('%d/%m %H:%M')}} <a href="/admin/order-status/{{o.id}}" style="margin-left:10px">Next Status</a></div>{% endfor %}</div>
-{% endif %}
-</div>
-""", tab=tab, users=users, rests=rests, dishes=dishes, orders=orders)
 
-@app.route('/admin/add-restaurant', methods=['POST'])
+{% if tab=='front' %}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="card"><h3>Today's Bookings & Pre-orders</h3><p style="font-size:12px;color:#666">Example: Customer pre-orders 4x Rump Steak at 13:30 tomorrow → System checked stock → Chef prep list</p><table><tr><th>Type</th><th>Date/Time</th><th>Dish xQty</th><th>People</th><th>Status</th></tr>{% for b in bookings %}<tr><td>{{b.type}}</td><td>{{b.date}} {{b.time}}</td><td>{{b.dish_name}} x{{b.qty}}</td><td>{{b.people}}</td><td>{{b.status}}</td></tr>{% endfor %}</table></div><div class="card"><h3>Chef Prep List (from pre-orders)</h3>{% for b in bookings if b.type=='Preorder' %}<div style="padding:8px 0;border-bottom:1px solid #eee;font-size:13px">Tomorrow {{b.time}}: <b>{{b.qty}}x {{b.dish_name}}</b> for {{b.people}} people<br><span style="font-size:11px;color:#666">Check: {% for d in dishes if d.name==b.dish_name %}{% for rec in d.recipes %}{{rec.ingredient.name}} {{rec.qty_needed*b.qty}}{{rec.ingredient.unit}} {% endfor %}{% endfor %}</span></div>{% endfor %}</div></div>
+{% endif %}
+
+{% if tab=='stock' %}
+<div class="card"><h3>A. Stock & Auto Re-ordering - Every Chicken Burger deducts: -1 bun, -0.2kg chicken</h3><form method="POST" action="/admin/add-ing?rid={{rid}}" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:6px"><input name="name" placeholder="Ingredient e.g. Chicken" required><input name="unit" placeholder="kg/pcs" required><input name="qty" type="number" step="0.01" placeholder="Current Qty" required><input name="min" type="number" step="0.01" placeholder="Min Qty" required><input name="cost" type="number" step="0.01" placeholder="Cost/unit" required><select name="supplier_id"><option value="">Supplier</option>{% for s in suppliers %}<option value="{{s.id}}">{{s.name}}</option>{% endfor %}</select><button class="btn btn-green">Add</button></form></div>
+{% if low %}<div class="card" style="border:2px solid #ffc107"><h3>⚠️ Auto-Alert: Stock Low - Dashboard shows "You have X left = Y days"</h3>{% for i in low %}<div class="low {{'out' if i.current_qty==0 else ''}}">🔴 {{i.name}}: {{i.current_qty}}{{i.unit}} left (min {{i.min_qty}}{{i.unit}}) = {% if i.current_qty==0 %}OUT OF STOCK{% else %}{{(i.current_qty/i.min_qty*2)|int}} days left{% endif %} → Supplier: {{i.supplier.name if i.supplier else 'None'}} <a href="https://wa.me/{{i.supplier.phone if i.supplier else '263772000001'}}?text=Hi%20{{i.supplier.name if i.supplier else ''}}%20Need%20{{i.min_qty*2 - i.current_qty}}{{i.unit}}%20{{i.name}}%20for%20{{r.name}}" target="_blank" class="btn btn-green" style="padding:4px 8px;margin-left:8px">One-tap WhatsApp {{i.supplier.name if i.supplier else ''}}</a></div>{% endfor %}</div>{% endif %}
+<div class="card"><h3>All Stock - Auto shopping list generated</h3><table><tr><th>Ingredient</th><th>Qty</th><th>Min</th><th>Cost</th><th>Days Left</th><th>Supplier</th><th>Action</th></tr>{% for i in ingredients %}<tr style="{{'background:#fff3cd' if i.current_qty<=i.min_qty else ''}}"><td>{{i.name}}</td><td>{{i.current_qty}}{{i.unit}}</td><td>{{i.min_qty}}{{i.unit}}</td><td>${{i.cost_per_unit}}</td><td>{% if i.current_qty==0 %}0 - OUT{% else %}{{(i.current_qty/i.min_qty*2)|int}} days{% endif %}</td><td>{{i.supplier.name if i.supplier else '-'}}</td><td><a href="/admin/restock/{{i.id}}?rid={{rid}}" class="btn btn-light" style="padding:2px 6px">+10</a> <a href="/admin/del-ing/{{i.id}}?rid={{rid}}" style="color:red">Del</a></td></tr>{% endfor %}</table></div>
+{% endif %}
+
+{% if tab=='suppliers' %}
+<div class="card"><h3>C. Supplier & Purchases - List of suppliers: Mega Markets, Delta, Irvine's</h3><form method="POST" action="/admin/add-sup?rid={{rid}}" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px"><input name="name" placeholder="Name e.g. Irvine's" required><input name="phone" placeholder="Phone 077..." required><input name="category" placeholder="Chicken/General/Drinks" required><input name="note" placeholder="Price note e.g. Tomatoes up 30%"><button class="btn btn-green" style="grid-column:1/5">Add Supplier</button></form></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="card"><h3>Suppliers - One-click reorder</h3><table><tr><th>Name</th><th>Phone</th><th>Category</th><th>Note / Price Track</th><th>Reorder</th></tr>{% for s in suppliers %}<tr><td>{{s.name}}</td><td>{{s.phone}}</td><td>{{s.category}}</td><td style="font-size:11px">{{s.last_price_note}}</td><td><a href="https://wa.me/{{s.phone}}?text=Hi%20{{s.name}}%20Need%20restock%20for%20{{r.name}}%20-%20{{low|length}}%20items%20low" target="_blank" class="btn btn-green" style="padding:4px 8px">WhatsApp</a> <a href="/admin/del-sup/{{s.id}}?rid={{rid}}" style="color:red">Del</a></td></tr>{% endfor %}</table></div>
+<div class="card"><h3>Purchases & Invoices - Tracks who is expensive</h3><form method="POST" action="/admin/add-purchase?rid={{rid}}" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px"><select name="supplier_id" required>{% for s in suppliers %}<option value="{{s.id}}">{{s.name}}</option>{% endfor %}</select><input name="ing" placeholder="Ingredient e.g. Tomatoes" required><input name="qty" type="number" step="0.01" placeholder="Qty" required><input name="cost" type="number" step="0.01" placeholder="Total Cost $" required><input name="invoice" placeholder="Invoice No"><button class="btn btn-dark">Add Purchase Invoice</button></form><table style="margin-top:10px"><tr><th>Date</th><th>Supplier</th><th>Item</th><th>Qty</th><th>Cost</th><th>Invoice</th></tr>{% for p in purchases %}<tr><td>{{p.created_at.strftime('%d/%m')}}</td><td>{{p.supplier_id}}</td><td>{{p.ingredient_name}}</td><td>{{p.qty}}</td><td>${{p.total_cost}}</td><td>{{p.invoice_no}}</td></tr>{% endfor %}</table><p style="font-size:11px;color:#666;margin-top:8px">Shows: "Tomatoes went up 30% this month" - compare last_price_note</p></div></div>
+{% endif %}
+
+{% if tab=='menu' %}
+<div class="card"><h3>Menu + Recipe Mapping - Link dish to ingredients</h3><form method="POST" action="/admin/add-dish?rid={{rid}}" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px"><input name="name" placeholder="Dish name" required><input name="price" type="number" step="0.01" placeholder="Price $" required><input name="image" placeholder="Image URL"><button class="btn btn-green">Add Dish</button></form>
+<form method="POST" action="/admin/add-recipe?rid={{rid}}" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:12px;border-top:1px solid #eee;padding-top:12px"><select name="dish_id">{% for d in dishes %}<option value="{{d.id}}">{{d.name}}</option>{% endfor %}</select><select name="ing_id">{% for i in ingredients %}<option value="{{i.id}}">{{i.name}} ({{i.current_qty}}{{i.unit}})</option>{% endfor %}</select><input name="qty" type="number" step="0.001" placeholder="Qty needed e.g. 0.2" required><button class="btn btn-dark">Link: Dish uses Ingredient</button></form></div>
+<div class="grid">{% for d in dishes %}<div class="card"><b>{{d.name}} - ${{d.price}}</b><br><span style="font-size:11px">{% for rec in d.recipes %}{{rec.ingredient.name}} {{rec.qty_needed}}{{rec.ingredient.unit}} | {% endfor %}</span><br><a href="/admin/del-dish/{{d.id}}?rid={{rid}}" style="color:red;font-size:12px">Delete</a></div>{% endfor %}</div>
+{% endif %}
+
+</div>
+""", tab=tab, rid=rid, rests=rests, r=r, ingredients=ingredients, suppliers=suppliers, dishes=dishes, bookings=bookings, purchases=purchases, low=low)
+
+@app.route('/admin/add-ing', methods=['POST'])
 @login_required
-def add_rest():
-    if not current_user.is_admin: return "Denied",403
-    r=Restaurant(name=request.form['name'], location=request.form['location'], phone=request.form['phone'], image=request.form['image'] or 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=500', description=request.form['description'] or 'Great food', ecocash_number=request.form['ecocash'] or 'To be added')
-    db.session.add(r); db.session.commit(); return redirect('/admin?tab=restaurants')
-
-@app.route('/admin/del-restaurant/<int:id>')
+def add_ing(): rid=request.args.get('rid',1,type=int); i=Ingredient(restaurant_id=rid, name=request.form['name'], unit=request.form['unit'], current_qty=float(request.form['qty']), min_qty=float(request.form['min']), cost_per_unit=float(request.form['cost']), supplier_id=int(request.form['supplier_id']) if request.form['supplier_id'] else None); db.session.add(i); db.session.commit(); return redirect(f'/admin?tab=stock&rid={rid}')
+@app.route('/admin/del-ing/<int:id>')
 @login_required
-def del_rest(id):
-    if not current_user.is_admin: return "Denied",403
-    r=Restaurant.query.get(id); 
-    if r: 
-        for d in r.dishes: db.session.delete(d)
-        db.session.delete(r); db.session.commit()
-    return redirect('/admin?tab=restaurants')
-
+def del_ing(id): rid=request.args.get('rid',1,type=int); db.session.delete(Ingredient.query.get(id)); db.session.commit(); return redirect(f'/admin?tab=stock&rid={rid}')
+@app.route('/admin/restock/<int:id>')
+@login_required
+def restock(id): rid=request.args.get('rid',1,type=int); i=Ingredient.query.get(id); i.current_qty+=10; db.session.commit(); return redirect(f'/admin?tab=stock&rid={rid}')
+@app.route('/admin/add-sup', methods=['POST'])
+@login_required
+def add_sup(): rid=request.args.get('rid',1,type=int); s=Supplier(restaurant_id=rid, name=request.form['name'], phone=request.form['phone'], category=request.form['category'], last_price_note=request.form['note']); db.session.add(s); db.session.commit(); return redirect(f'/admin?tab=suppliers&rid={rid}')
+@app.route('/admin/del-sup/<int:id>')
+@login_required
+def del_sup(id): rid=request.args.get('rid',1,type=int); db.session.delete(Supplier.query.get(id)); db.session.commit(); return redirect(f'/admin?tab=suppliers&rid={rid}')
+@app.route('/admin/add-purchase', methods=['POST'])
+@login_required
+def add_purchase(): rid=request.args.get('rid',1,type=int); p=Purchase(restaurant_id=rid, supplier_id=int(request.form['supplier_id']), ingredient_name=request.form['ing'], qty=float(request.form['qty']), total_cost=float(request.form['cost']), invoice_no=request.form['invoice']); db.session.add(p); db.session.commit(); return redirect(f'/admin?tab=suppliers&rid={rid}')
 @app.route('/admin/add-dish', methods=['POST'])
 @login_required
-def add_dish():
-    if not current_user.is_admin: return "Denied",403
-    d=Dish(name=request.form['name'], price=float(request.form['price']), restaurant_id=int(request.form['restaurant_id']), image=request.form['image'] or 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=500')
-    db.session.add(d); db.session.commit(); return redirect('/admin?tab=dishes')
-
+def add_dish(): rid=request.args.get('rid',1,type=int); d=Dish(restaurant_id=rid, name=request.form['name'], price=float(request.form['price']), image=request.form['image'] or 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=500'); db.session.add(d); db.session.commit(); return redirect(f'/admin?tab=menu&rid={rid}')
+@app.route('/admin/add-recipe', methods=['POST'])
+@login_required
+def add_recipe(): rid=request.args.get('rid',1,type=int); r=Recipe(dish_id=int(request.form['dish_id']), ingredient_id=int(request.form['ing_id']), qty_needed=float(request.form['qty'])); db.session.add(r); db.session.commit(); return redirect(f'/admin?tab=menu&rid={rid}')
 @app.route('/admin/del-dish/<int:id>')
 @login_required
-def del_dish(id):
-    if not current_user.is_admin: return "Denied",403
-    d=Dish.query.get(id); 
-    if d: db.session.delete(d); db.session.commit()
-    return redirect('/admin?tab=dishes')
+def del_dish(id): rid=request.args.get('rid',1,type=int); db.session.delete(Dish.query.get(id)); db.session.commit(); return redirect(f'/admin?tab=menu&rid={rid}')
 
-@app.route('/admin/del-user/<int:id>')
-@login_required
-def del_user(id):
-    if not current_user.is_admin or id==current_user.id: return redirect('/admin?tab=users')
-    u=User.query.get(id); 
-    if u: db.session.delete(u); db.session.commit()
-    return redirect('/admin?tab=users')
-
-@app.route('/admin/make-admin/<int:id>')
-@login_required
-def make_admin(id):
-    if not current_user.is_admin: return "Denied",403
-    u=User.query.get(id); 
-    if u: u.is_admin=not u.is_admin; db.session.commit()
-    return redirect('/admin?tab=users')
-
-@app.route('/admin/order-status/<int:id>')
-@login_required
-def order_status(id):
-    if not current_user.is_admin: return "Denied",403
-    o=Order.query.get(id)
-    if o: o.status={'Pending':'Preparing','Preparing':'Out for delivery','Out for delivery':'Delivered','Delivered':'Pending'}[o.status]; db.session.commit()
-    return redirect('/admin?tab=orders')
-
-if __name__=="__main__":
-    app.run(host='0.0.0.0',port=10000)
+if __name__=="__main__": app.run(host='0.0.0.0', port=10000)
