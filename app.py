@@ -195,6 +195,4 @@ def add_sample():
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=10000)
-Flask-SQLAlchemy==3.1.1
-SQLAlchemy==2.0.23
-gunicorn==21.2.0
+
